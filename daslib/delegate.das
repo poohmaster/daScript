@@ -97,8 +97,7 @@ struct template public DelegateReturn {
         return <- $e(lastCall)
     }
 
-    //! Alias for ``invoke`` — preferred under hosts where ``.invoke(...)`` is
-    //! stolen by free-function ``invoke`` / method-call sugar (Godot Das host).
+    //! Alias for ``invoke`` (same body). Either name works under Godot host.
     def fire($a(invokeArgs)) : $t(retType) {
         if (empty(invocation_list)) {
             static_if (typeinfo can_copy(type<$t(retType) -const>)) {
@@ -175,8 +174,7 @@ struct template public DelegateVoid {
         }
     }
 
-    //! Alias for ``invoke`` — preferred under hosts where ``.invoke(...)`` is
-    //! stolen by free-function ``invoke`` / method-call sugar (Godot Das host).
+    //! Alias for ``invoke`` (same body). Either name works under Godot host.
     def fire($a(invokeArgs)) {
         for (cb in invocation_list) {
             $e(voidCall)

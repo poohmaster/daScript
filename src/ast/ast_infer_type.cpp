@@ -1598,6 +1598,29 @@ namespace das {
     }
 
     ExpressionPtr InferTypes::visit(ExprInvoke *expr) {
+        // Method-call sugar `recv.invoke(...)` is `invoke(recv.invoke, type<auto>, ...)`.
+        // Under hosts where that name collides with ExprInvoke itself (Godot Das), the
+        // field resolves as a value but the method-call path leaves type<auto>.
+        // daslib/delegate defines identical `fire` — rewrite the field name early.
+        if (expr->isInvokeMethod && !expr->arguments.empty() && expr->arguments[0]->rtti_isField()) {
+            auto eField = static_cast<ExprField *>(expr->arguments[0]);
+            if (eField->name == "invoke" && eField->value && eField->value->type && !eField->value->type->isAutoOrAlias()) {
+                Structure *st = nullptr;
+                auto vt = eField->value->type;
+                if (vt->baseType == Type::tStructure) {
+                    st = vt->structType;
+                } else if (vt->baseType == Type::tPointer && vt->firstType && vt->firstType->baseType == Type::tStructure) {
+                    st = vt->firstType->structType;
+                }
+                if (st && st->findField("fire")) {
+                    eField->name = "fire";
+                    eField->fieldRef = Structure::FieldDeclarationRef();
+                    eField->type = nullptr;
+                    reportAstChanged();
+                    return Visitor::visit(expr);
+                }
+            }
+        }
         if (expr->argumentsFailedToInfer) {
             auto blockT = expr->arguments[0]->type;
             if ( expr->isInvokeMethod && expr->arguments[0]->rtti_isField() && expr->arguments[1]->rtti_isTypeDecl() ) {
@@ -1742,7 +1765,25 @@ namespace das {
                             // Skip bare `_::invoke` — that name is the free-function/operator
                             // invoke and steals method calls on structs that define `def invoke`
                             // (daslib/delegate), leaving a dangling type<auto> placeholder.
-                            auto callName = "_::" + methodName;
+                            // Prefer `_::Struct`fire` when present (identical body on delegates).
+                            auto resolvedMethod = methodName;
+                            if (methodName == "invoke" && valueType->baseType == Type::tStructure) {
+                                for (auto st = valueType->structType; st; st = st->parent) {
+                                    if (st->findField("fire")) {
+                                        resolvedMethod = "fire";
+                                        break;
+                                    }
+                                }
+                            } else if (methodName == "invoke" && valueType->baseType == Type::tPointer &&
+                                       valueType->firstType && valueType->firstType->baseType == Type::tStructure) {
+                                for (auto st = valueType->firstType->structType; st; st = st->parent) {
+                                    if (st->findField("fire")) {
+                                        resolvedMethod = "fire";
+                                        break;
+                                    }
+                                }
+                            }
+                            auto callName = "_::" + resolvedMethod;
                             auto newCall = new ExprCall(expr->at, callName);
                             newCall->atEnclosure = expr->atEnclosure;
                             newCall->alwaysSafe = expr->alwaysSafe;
@@ -1755,28 +1796,21 @@ namespace das {
                                 newCall->arguments.push_back(expr->arguments[i]);
                             }
                             FunctionPtr fcall = nullptr;
-                            if (methodName != "invoke") {
+                            if (resolvedMethod != "invoke") {
                                 fcall = inferFunctionCall(newCall, InferCallError::tryOperator); // we infer it
                                 if (fcall != nullptr || newCall->name != callName) {
                                     reportAstChanged();
                                     return newCall;
                                 }
-                            } else {
-                                // `def invoke` on structs (daslib/delegate) collides with free
-                                // `_::invoke` / ExprInvoke. Resolve by matching overloads where
-                                // the first argument is the receiver struct (no `_::` prefix).
-                                newCall->name = methodName;
-                                fcall = inferFunctionCall(newCall, InferCallError::tryOperator);
-                                if (fcall != nullptr || newCall->name != methodName) {
-                                    reportAstChanged();
-                                    return newCall;
-                                }
-                                newCall->name = callName; // restore for struct-qualified attempts below
                             }
+                            // `def invoke` on structs (daslib/delegate): do NOT try bare
+                            // `invoke` / `_::invoke` — `addCall<ExprInvoke>("invoke")` steals
+                            // the name and returns a broken call (type<auto>) before the
+                            // struct-qualified path below can resolve `Struct`invoke`.
                             // Struct-qualified method (instance or static) and their parents.
                             if (valueType->baseType == Type::tStructure) {
                                 for ( auto st = valueType->structType; st; st = st->parent ) {
-                                     callName = "_::" + st->name + "`" + methodName;
+                                     callName = "_::" + st->name + "`" + resolvedMethod;
                                      newCall->name = callName;
                                      fcall = inferFunctionCall(newCall, InferCallError::tryOperator);
                                      if (fcall != nullptr || newCall->name != callName) {
@@ -1790,7 +1824,7 @@ namespace das {
                                 derefValue->type->constant |= valueType->constant;
                                 newCall->arguments[0] = derefValue;
                                 for ( auto st = valueType->firstType->structType; st; st = st->parent ) {
-                                    callName = "_::" + st->name + "`" + methodName;
+                                    callName = "_::" + st->name + "`" + resolvedMethod;
                                     newCall->name = callName;
                                     fcall = inferFunctionCall(newCall, InferCallError::tryOperator);
                                     if (fcall != nullptr || newCall->name != callName) {
@@ -1800,7 +1834,8 @@ namespace das {
                                 }
                             }
                         }
-                        if (auto mcall = makeCallMacro(expr->at, methodName)) {
+                        if (auto mcall = makeCallMacro(expr->at, methodName == "invoke" ? string("fire") : methodName)) {
+                            // Avoid makeCallMacro("invoke") → fresh ExprInvoke that steals the call.
                             mcall->pipedCallArgument = expr->pipedCallArgument;
                             mcall->arguments.push_back(value);
                             for (size_t i = 2; i != expr->arguments.size(); ++i) {

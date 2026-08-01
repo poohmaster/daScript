@@ -97,6 +97,24 @@ struct template public DelegateReturn {
         return <- $e(lastCall)
     }
 
+    //! Alias for ``invoke`` — preferred under hosts where ``.invoke(...)`` is
+    //! stolen by free-function ``invoke`` / method-call sugar (Godot Das host).
+    def fire($a(invokeArgs)) : $t(retType) {
+        if (empty(invocation_list)) {
+            static_if (typeinfo can_copy(type<$t(retType) -const>)) {
+                return default<$t(retType) -const>
+            } else {
+                var _delegate_default : $t(retType) -const
+                return <- _delegate_default
+            }
+        }
+        let delegate_n = length(invocation_list)
+        for (delegate_i in 0..delegate_n - 1) {
+            $e(discardCall)
+        }
+        return <- $e(lastCall)
+    }
+
     def empty() : bool {
         return empty(invocation_list)
     }
@@ -152,6 +170,14 @@ struct template public DelegateVoid {
     }
 
     def invoke($a(invokeArgs)) {
+        for (cb in invocation_list) {
+            $e(voidCall)
+        }
+    }
+
+    //! Alias for ``invoke`` — preferred under hosts where ``.invoke(...)`` is
+    //! stolen by free-function ``invoke`` / method-call sugar (Godot Das host).
+    def fire($a(invokeArgs)) {
         for (cb in invocation_list) {
             $e(voidCall)
         }

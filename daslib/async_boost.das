@@ -124,6 +124,26 @@ class AsyncMacro : AstFunctionAnnotation {
 }
 
 [macro_function]
+def findAwaitFn(subCallName : das_string) : FunctionPtr {
+    //! Resolve await callee in the compiling module, then across all program modules
+    //! (required boost helpers like await_timeout live in another module).
+    var fn = compiling_module() |> find_unique_function("{subCallName}", true)
+    if (fn != null) {
+        return fn
+    }
+    var found : FunctionPtr
+    program_for_each_module(compiling_program()) $(mod) {
+        if (found == null) {
+            var f = find_unique_function(mod, "{subCallName}", true)
+            if (f != null) {
+                found = f
+            }
+        }
+    }
+    return found
+}
+
+[macro_function]
 def validateAwaitFn(fn : FunctionPtr; subCallName : das_string; var errors : string&) : bool {
     if (fn == null) {
         errors = "{errors}\nexpecting await(<async fn>), but function {subCallName} is not found, make sure it is defined before the coroutine"
@@ -158,7 +178,7 @@ def move_clone_copy(var expr; voidRoutine : bool; var retType : TypeDecl?&; assi
         if (call.name == "await") {
             if (call.arguments[0] is ExprCall) {
                 var subCall = call.arguments[0] as ExprCall
-                var fn = compiling_module() |> find_unique_function("{subCall.name}")
+                var fn = findAwaitFn(subCall.name)
                 var error = ""
                 if (!validateAwaitFn(fn, subCall.name, error)) {
                     macro_error(compiling_program(), expr.at, error)
@@ -267,7 +287,7 @@ class CollectAndReplaceIteratorFields : AstVisitor {
                         }
 
                         var subCall = call.arguments[0] as ExprCall
-                        var fn = compiling_module() |> find_unique_function("{subCall.name}")
+                        var fn = findAwaitFn(subCall.name)
                         if (fn == null) {
                             macro_error(compiling_program(), expr.at, "expecting await(<async fn>), but function {subCall.name} is not found,\ndefine variable type explicitly: let res : <type> = await <| {subCall.name}()\nor make sure the function is defined before the coroutine")
                             return <- expr

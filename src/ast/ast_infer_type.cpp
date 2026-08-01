@@ -1739,6 +1739,9 @@ namespace das {
                         }
                         if (allOtherInferred) {
                             // we build _::{field.name} ( field, arg1, arg2, ... )
+                            // Skip bare `_::invoke` — that name is the free-function/operator
+                            // invoke and steals method calls on structs that define `def invoke`
+                            // (daslib/delegate), leaving a dangling type<auto> placeholder.
                             auto callName = "_::" + methodName;
                             auto newCall = new ExprCall(expr->at, callName);
                             newCall->atEnclosure = expr->atEnclosure;
@@ -1751,18 +1754,32 @@ namespace das {
                             for (size_t i = 2; i != expr->arguments.size(); ++i) {
                                 newCall->arguments.push_back(expr->arguments[i]);
                             }
-                            auto fcall = inferFunctionCall(newCall, InferCallError::tryOperator); // we infer it
-                            if (fcall != nullptr || newCall->name != callName) {
-                                reportAstChanged();
-                                return newCall;
+                            FunctionPtr fcall = nullptr;
+                            if (methodName != "invoke") {
+                                fcall = inferFunctionCall(newCall, InferCallError::tryOperator); // we infer it
+                                if (fcall != nullptr || newCall->name != callName) {
+                                    reportAstChanged();
+                                    return newCall;
+                                }
+                            } else {
+                                // `def invoke` on structs (daslib/delegate) collides with free
+                                // `_::invoke` / ExprInvoke. Resolve by matching overloads where
+                                // the first argument is the receiver struct (no `_::` prefix).
+                                newCall->name = methodName;
+                                fcall = inferFunctionCall(newCall, InferCallError::tryOperator);
+                                if (fcall != nullptr || newCall->name != methodName) {
+                                    reportAstChanged();
+                                    return newCall;
+                                }
+                                newCall->name = callName; // restore for struct-qualified attempts below
                             }
-                            // lets try static class method (and their parents)
+                            // Struct-qualified method (instance or static) and their parents.
                             if (valueType->baseType == Type::tStructure) {
                                 for ( auto st = valueType->structType; st; st = st->parent ) {
                                      callName = "_::" + st->name + "`" + methodName;
                                      newCall->name = callName;
                                      fcall = inferFunctionCall(newCall, InferCallError::tryOperator);
-                                     if ((fcall != nullptr && fcall->isStaticClassMethod) || newCall->name != callName) {
+                                     if (fcall != nullptr || newCall->name != callName) {
                                          reportAstChanged();
                                          return newCall;
                                      }
@@ -1776,7 +1793,7 @@ namespace das {
                                     callName = "_::" + st->name + "`" + methodName;
                                     newCall->name = callName;
                                     fcall = inferFunctionCall(newCall, InferCallError::tryOperator);
-                                    if ((fcall != nullptr && fcall->isStaticClassMethod) || newCall->name != callName) {
+                                    if (fcall != nullptr || newCall->name != callName) {
                                         reportAstChanged();
                                         return newCall;
                                     }

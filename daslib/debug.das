@@ -881,9 +881,13 @@ def private to_string(ctx : DAContext) {
 }
 
 
+def private normalize_path_slashes(p : string) : string {
+    return p |> replace("\\", "/")
+}
+
 def private compare_path(p1, p2 : string) {
     if (p1 == p2) return true
-    return to_lower(p1) == to_lower(p2)
+    return to_lower(p1 |> normalize_path_slashes()) == to_lower(p2 |> normalize_path_slashes())
 }
 
 class private DAgent : DapiDebugAgent {

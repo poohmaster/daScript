@@ -324,6 +324,40 @@ namespace das {
     DAS_SUPPRESS_UB
     __forceinline void das_memcpy ( void * left, const void * right, uint64_t size ) { memcpy(left, right, size_t(size)); }
 
+    // memmove: same shape as das_memcpy above, but backed by libc memmove -- well-defined
+    // (unlike memcpy) when left/right overlap. No memcmp-style compare counterpart: comparison
+    // never writes, so overlapping read-only ranges have no undefined-behavior case to fix.
+    // Suppress null argument with size = 0
+    DAS_SUPPRESS_UB
+    __forceinline void das_memmove ( void * left, void * right, int size ) {
+        memmove(left, right, size);
+    }
+
+    // const-source overload: das accepts a const pointer for a void? extern argument, and the
+    // emitted call then casts through das_cast<void const *> — this binds it without touching
+    // the das-side signature (the non-const original stays the bound extern, so no AOT-hash
+    // churn). memmove keeps a strictly-writable destination, same as memcpy above.
+    DAS_SUPPRESS_UB
+    __forceinline void das_memmove ( void * left, const void * right, int size ) {
+        memmove(left, right, size);
+    }
+
+    // unsigned and 64-bit size spellings, same rationale as das_memcpy above: das has no
+    // implicit promotion, so an already-uint/int64/uint64 size could otherwise only reach
+    // memmove through an int(...) narrowing cast at the call site -- which truncates above 2GB.
+    DAS_SUPPRESS_UB
+    __forceinline void das_memmove ( void * left, void * right, uint32_t size ) { memmove(left, right, size_t(size)); }
+    DAS_SUPPRESS_UB
+    __forceinline void das_memmove ( void * left, void * right, int64_t size ) { memmove(left, right, size_t(size)); }
+    DAS_SUPPRESS_UB
+    __forceinline void das_memmove ( void * left, void * right, uint64_t size ) { memmove(left, right, size_t(size)); }
+    DAS_SUPPRESS_UB
+    __forceinline void das_memmove ( void * left, const void * right, uint32_t size ) { memmove(left, right, size_t(size)); }
+    DAS_SUPPRESS_UB
+    __forceinline void das_memmove ( void * left, const void * right, int64_t size ) { memmove(left, right, size_t(size)); }
+    DAS_SUPPRESS_UB
+    __forceinline void das_memmove ( void * left, const void * right, uint64_t size ) { memmove(left, right, size_t(size)); }
+
     // Suppress null argument with size = 0
     DAS_SUPPRESS_UB
     __forceinline void das_memset8 ( void * left, uint8_t value, int size ) {

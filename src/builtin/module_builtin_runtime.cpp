@@ -2605,6 +2605,21 @@ namespace das
         addExtern<int (*)(void *, void *, uint64_t), das_memcmp>(*this, lib, "memcmp",
             SideEffects::none, "das_memcmp")
                 ->args({"left","right","size"})->unsafeOperation = true;
+        // memmove -- same registration shape as memcpy above, but safe for overlapping
+        // ranges (real libc memmove, not a hand-rolled shift loop). No memcmp-style compare
+        // counterpart needed: comparison never writes, so it has no overlap hazard to fix.
+        addExtern<void (*)(void *, void *, int), das_memmove>(*this, lib, "memmove",
+            SideEffects::modifyArgumentAndExternal, "das_memmove")
+                ->args({"left","right","size"})->unsafeOperation = true;
+        addExtern<void (*)(void *, void *, uint32_t), das_memmove>(*this, lib, "memmove",
+            SideEffects::modifyArgumentAndExternal, "das_memmove")
+                ->args({"left","right","size"})->unsafeOperation = true;
+        addExtern<void (*)(void *, void *, int64_t), das_memmove>(*this, lib, "memmove",
+            SideEffects::modifyArgumentAndExternal, "das_memmove")
+                ->args({"left","right","size"})->unsafeOperation = true;
+        addExtern<void (*)(void *, void *, uint64_t), das_memmove>(*this, lib, "memmove",
+            SideEffects::modifyArgumentAndExternal, "das_memmove")
+                ->args({"left","right","size"})->unsafeOperation = true;
         addExtern<DAS_BIND_FUN(das_memset8)>(*this, lib, "memset8",
             SideEffects::modifyArgumentAndExternal, "das_memset8")
                 ->args({"left","value","count"})->unsafeOperation = true;

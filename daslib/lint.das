@@ -512,7 +512,7 @@ class LintVisitor : AstVisitor {
             ? expr.func.fromGeneric.name
             : expr.name)
         let nargs = length(expr.arguments)
-        if ((fname == "memcpy" || fname == "memcmp") && nargs == 3) {
+        if ((fname == "memcpy" || fname == "memcmp" || fname == "memmove") && nargs == 3) {
             lint018_check_arg(expr, fname, 2, true)
             return
         }

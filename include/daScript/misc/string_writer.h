@@ -93,6 +93,9 @@ namespace das {
         char * c_str();
         char * data();
         void clear();
+        // Removes the first n bytes, shifting the rest down (0 <= n <= size; n==0 is a no-op).
+        // Hard-fails via DAS_VERIFYF on out-of-range n -- never silently truncates or corrupts.
+        void eraseFront(int n);
         virtual void output() override;
     protected:
         virtual void append(const char * s, int l)  override;

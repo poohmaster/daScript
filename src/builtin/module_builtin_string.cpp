@@ -480,6 +480,11 @@ namespace das
         return writer;
     }
 
+    StringBuilderWriter & erase_string_front ( StringBuilderWriter & writer, int32_t n ) {
+        writer.eraseFront(n);
+        return writer;
+    }
+
     char * to_string_char ( int ch, Context * context, LineInfoArg * at ) {
         auto st = context->allocateString(nullptr, 1, at);
         *st = char(ch);
@@ -903,6 +908,8 @@ namespace das
                 SideEffects::modifyExternal, "write_string_chars")->args({"writer","ch","count"});
             addExtern<DAS_BIND_FUN(write_escape_string),SimNode_ExtFuncCallRef>(*this, lib, "write_escape_string",
                 SideEffects::modifyExternal, "write_escape_string")->args({"writer","str"});
+            addExtern<DAS_BIND_FUN(erase_string_front),SimNode_ExtFuncCallRef>(*this, lib, "erase_front",
+                SideEffects::modifyExternal, "erase_string_front")->args({"writer","n"});
             // fmt
             addExtern<DAS_BIND_FUN(fmt_and_write_i8),SimNode_ExtFuncCallRef> (*this, lib, "fmt",
                 SideEffects::modifyExternal, "fmt_and_write_i8")->args({"writer","format","value","context","lineinfo"});

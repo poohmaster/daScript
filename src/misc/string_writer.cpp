@@ -128,6 +128,14 @@ namespace das {
         size = 0;
     }
 
+    void TextWriter::eraseFront(int n) {
+        if ( n == 0 ) return;
+        DAS_VERIFYF(n > 0 && n <= size, "TextWriter::eraseFront: n=%d out of range [0,%d]\n", n, size);
+        int32_t rem = size - n;
+        memmove(largeBuffer, largeBuffer + n, size_t(rem));
+        size = rem;
+    }
+
     void TextWriter::output() {
         // nothing to do
     }

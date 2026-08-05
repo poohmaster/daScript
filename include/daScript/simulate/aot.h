@@ -2841,6 +2841,76 @@ namespace das {
         }
     };
 
+    // PROTOTYPE (2026-08), see notes/daslang_perf_bottleneck_findings.md ("Cross-module
+    // daScript calls: AOT re-resolves the callee by hash on every single call"):
+    //
+    // AOT hybrid cross-module calls (daslib/aot_cpp.das, isHybridCall) resolve their callee
+    // via Context::fnByMangledName -- a real tabMnLookup hash-table probe -- on EVERY call,
+    // even though the target is invariant for a Context's whole lifetime: Program::simulate()
+    // populates tabMnLookup exactly once (Program::buildMNLookup, ast_simulate.cpp) and this
+    // project never mutates an existing, already-running Context's tabMnLookup afterward
+    // (confirmed: the only other tabMnLookup writers, module_jit.cpp/standalone_ctx_utils.cpp,
+    // belong to the separate "standalone -exe" build path and are unreached from daslang/src,
+    // the Godot module). AotCallSiteCache lets AOT-generated code (see queryByMNH in
+    // aot_cpp.das) memoize that resolution per call site instead of re-probing every time.
+    //
+    // Correctness -- why this is NOT a bare `static SimFunction *`:
+    //   Context objects are torn down and reconstructed (not mutated in place) on script
+    //   hot-reload -- see DasScript::reload() in the Godot module, which builds a brand new
+    //   GodotContext and re-simulates into it even when the AOT C++ for a function is
+    //   byte-for-byte reused. A freshly-allocated Context CAN land at the same address as a
+    //   just-destroyed one (ordinary heap reuse), so validating a cache against the raw
+    //   Context* would risk an ABA hazard: a stale SimFunction* left over from a torn-down
+    //   Context's function table, wrongly treated as still valid because the new Context
+    //   happens to reuse that address. Context::contextInstanceId (simulate.h) is a
+    //   monotonically-increasing id, unique for the lifetime of the whole process (never
+    //   reused even across address reuse), assigned once per Context construction -- see
+    //   its declaration for the full reasoning -- so comparing against it closes that gap.
+    //
+    // Concurrency: daScript supports multiple simultaneous Contexts over the same compiled
+    // program (new_thread(), jobque's fork-context pooling -- Context::acquireForkContext).
+    // Derived/forked contexts share their parent's tabMnLookup/functions (Context::Context
+    // (const Context&, CopyOptions), context.cpp) and so would always resolve the identical
+    // SimFunction* -- but aotResolveCached (below) declares its AotCallSiteCache instance
+    // `thread_local` specifically so this struct itself never needs to reason about
+    // cross-thread synchronization: every thread gets its own independent instance, so nothing
+    // here is ever written from more than one thread. Do NOT change that declaration to plain
+    // `static` -- that would reintroduce an unsynchronized cross-thread read/write race.
+    struct AotCallSiteCache {
+        uint64_t validForContext = 0;  // 0 never matches a real id (ids start at 1)
+        SimFunction * cachedFn = nullptr;
+        __forceinline Func resolve ( Context * __context__, uint64_t mnh ) {
+            if ( __context__->contextInstanceId != validForContext ) {
+                cachedFn = __context__->fnByMangledName(mnh);
+                validForContext = __context__->contextInstanceId;
+            }
+            return Func(cachedFn);
+        }
+    };
+
+    // MNH (the mangled-name-hash) as a non-type template parameter gives each distinct call
+    // target its own separate `thread_local AotCallSiteCache` -- one instantiation of this
+    // function template per distinct MNH, each with its own static storage, the same
+    // well-established idiom as a function-local Meyer's-singleton static, safely merged by
+    // the linker across translation units (inline + ODR). Two DIFFERENT call sites that
+    // happen to target the SAME function share one cache entry -- deliberate, not a bug: for
+    // a given Context that's the same correct answer either way (see AotCallSiteCache above),
+    // and sharing is strictly more cache-hit-friendly than one entry per call site.
+    //
+    // Deliberately a plain function-call expression (queryByMNH in aot_cpp.das just emits
+    // "aotResolveCached<0x...>(__context__)") rather than an immediately-invoked lambda
+    // spliced inline at the call site: an earlier prototype used a `[&]() -> Func { ... }()`
+    // IIFE directly in argument position and MSVC failed to parse the ENCLOSING
+    // das_invoke_function<T>::invoke<...>(...) call around it (cascading "identifier not
+    // found" errors on unrelated code later in the same statement) when that argument
+    // position sat inside another template call's argument list. Never reintroduce a lambda
+    // at the queryByMNH splice site without confirming it actually compiles there.
+    template <uint64_t MNH>
+    __forceinline Func aotResolveCached ( Context * __context__ ) {
+        thread_local AotCallSiteCache cache;
+        return cache.resolve(__context__, MNH);
+    }
+
     template <typename ResType>
     struct das_invoke_function {
         DAS_SUPPRESS_UB

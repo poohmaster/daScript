@@ -12,6 +12,10 @@ namespace das
     static DAS_THREAD_LOCAL(bool) g_isInDebugAgentCreation;
     extern atomic<int> g_envTotal;
 
+    // PROTOTYPE (2026-08): backs Context::contextInstanceId (simulate.h) -- see the comment
+    // there. Starts at 1 so 0 can stay a safe "never resolved" sentinel for AotCallSiteCache.
+    static atomic<uint64_t> g_nextContextInstanceId {1};
+
     template <typename TT>
     void on_debug_agent_mutex ( const TT & lmbd ) {
         std::lock_guard<std::recursive_mutex> guard(g_DebugAgentMutex);
@@ -64,6 +68,7 @@ namespace das
 
     Context::Context(uint32_t stackSize, bool ph) : stack(stackSize) {
         ref_count_magic = TRACK_PTR_CONTEXT;
+        contextInstanceId = g_nextContextInstanceId.fetch_add(1, memory_order_relaxed);
         code = make_shared<NodeAllocator>();
         constStringHeap = make_shared<ConstStringAllocator>();
         debugInfo = make_shared<DebugInfoAllocator>();
@@ -279,6 +284,11 @@ namespace das
     Context::Context(const Context & ctx, const CopyOptions & opts)
         : stack(opts.stackSize ? opts.stackSize : ctx.stack.size()) {
         ref_count_magic = TRACK_PTR_CONTEXT;
+        // Always a FRESH id, deliberately not inherited from ctx, even though a derived/forked
+        // context shares ctx's tabMnLookup/functions (see below) and would resolve identically:
+        // uniformly "every Context gets its own id, no exceptions" is simple to prove correct.
+        // The cost is a few extra one-time AOT cache misses per forked context; see simulate.h.
+        contextInstanceId = g_nextContextInstanceId.fetch_add(1, memory_order_relaxed);
         verySafeContext = ctx.verySafeContext;
         persistent = ctx.persistent;
         gcEnabled = ctx.gcEnabled;

@@ -901,6 +901,16 @@ namespace das
         shared_ptr<das_hash_map<uint64_t,uint32_t>> tabGMnLookup;
         shared_ptr<das_hash_map<uint64_t,uint64_t>> tabAdLookup;
     public:
+        // Globally-unique, monotonically-increasing, NEVER-reused id assigned once per
+        // Context construction (see context.cpp). Unlike `this`, it can't collide with a
+        // later Context that happens to be heap-allocated at the same address after this
+        // one is destroyed (a real risk: e.g. Godot-embedded script hot-reload tears down
+        // and reconstructs a Context for what is source-identical AOT-compiled code -- see
+        // DasScript::reload()). PROTOTYPE (2026-08): added so AOT call-site caches (see
+        // AotCallSiteCache in aot.h) can validate a cached SimFunction* against "is this
+        // still the same Context I resolved it for" in O(1) without that ABA hazard.
+        uint64_t contextInstanceId = 0;
+    public:
         class Program * thisProgram = nullptr;
         class DebugInfoHelper * thisHelper = nullptr;
     public:

@@ -3099,8 +3099,18 @@ class public CppAot : AstVisitor {
         return ref2ptr;
     }
 // addr
+    // PROTOTYPE (2026-08): was a raw "Func(__context__->fnByMangledName(hash))" -- a real
+    // tabMnLookup hash-table probe re-executed on EVERY call, even in a hot loop calling the
+    // same invariant cross-module target thousands of times per frame (see
+    // notes/daslang_perf_bottleneck_findings.md, "Cross-module daScript calls: AOT
+    // re-resolves the callee by hash on every single call"). Now routes through
+    // aotResolveCached<MNH>/AotCallSiteCache (daScript/include/daScript/simulate/aot.h), a
+    // per-target, per-Context-validated, thread_local cache -- see those declarations for the
+    // full correctness argument (why per-Context, not a bare static; why thread_local; why a
+    // plain function-template call and NOT a lambda spliced inline -- MSVC failed to parse an
+    // earlier lambda-IIFE version of this in some call-argument positions).
     def queryByMNH(name : string; hash : uint64) {
-        return "Func(__context__->fnByMangledName(/*{name}*/ 0x{hash:x}))";
+        return "aotResolveCached<0x{hash:x}>(__context__) /*{name}*/";
     }
 
     def override preVisitExprAddr(expr : ExprAddr?) {

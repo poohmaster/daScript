@@ -2283,8 +2283,17 @@ class public CppAot : AstVisitor {
             write(*ss, "{collector.getVarName(variable.variable)}");
         } else {
             write(*ss, (variable.variable.flags.global_shared ? "das_shared" : "das_global"));
+            // Mirror visitGlobalVariable: under solid_context the offset is known at codegen
+            // time, so bake it in. Without this, every READ of a global went through
+            // das_global<> -> Context::globalOffsetByMangledName -> tabGMnLookup->find(mnh),
+            // a hash probe per access, while the DECLARATION already used the _solid form --
+            // the option was honoured on one path and silently ignored on the other.
+            if (solidContext) {
+                write(*ss, "_solid");
+            }
             let type_str = describeCppType(variable.variable._type, DescribeConfig(skip_ref = true, skip_const = true, cross_platform = cross_platform));
-            write(*ss, "<{type_str},0x{variable.variable.getMangledNameHash:x}>(__context__) /*{variable.name}*/");
+            let hash_val = solidContext ? "{variable.variable.stackTop:d}" : "0x{variable.variable.getMangledNameHash:x}";
+            write(*ss, "<{type_str},{hash_val}>(__context__) /*{variable.name}*/");
         }
         if (variable._type.flags.aotAlias) {
             write(*ss, ")");
